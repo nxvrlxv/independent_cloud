@@ -30,15 +30,19 @@ func NewFileRepository(pool *pgxpool.Pool) *FileRepository {
 	return &FileRepository{pool: pool}
 }
 
-func (repo *FileRepository) Save(ctx context.Context, file *File) error {
-	_, err := repo.pool.Exec(ctx,
+func (repo *FileRepository) Save(ctx context.Context, file *File) (int64, error) {
+	var id int64
+	err := repo.pool.QueryRow(ctx,
 		"INSERT INTO files (owner_id, original_name, storage_key, size_bytes, content_type) "+
-			"VALUES ($1, $2, $3, $4, $5)", file.OwnerID, file.OriginalName, file.StorageKey, file.SizeBytes, file.ContentType)
+			"VALUES ($1, $2, $3, $4, $5) RETURNING id", file.OwnerID, file.OriginalName, file.StorageKey, file.SizeBytes, file.ContentType).Scan(&id)
 	if err != nil {
-		return fmt.Errorf("save file: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrFileNotFound
+		}
+		return 0, fmt.Errorf("save file: %w", err)
 	}
 
-	return nil
+	return id, nil
 }
 
 func (repo *FileRepository) Delete(ctx context.Context, id int64) error {

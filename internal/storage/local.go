@@ -22,25 +22,25 @@ func (s *LocalStorage) buildPath(key string) string {
 	return filepath.Join(s.basePath, key[0:2], key[2:4], key)
 }
 
-func (s *LocalStorage) Save(ctx context.Context, key string, r io.Reader) error {
+func (s *LocalStorage) Save(ctx context.Context, key string, r io.Reader) (int64, error) {
 	fullPath := s.buildPath(key)
 	err := os.MkdirAll(filepath.Dir(fullPath), 0o755)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	file, err := os.Create(fullPath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	defer file.Close()
 
 	nbyte, err := io.Copy(file, r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	fmt.Printf("Successfully wrote %v bytes!", nbyte)
-	return nil
+	return nbyte, nil
 }
 
 func (s *LocalStorage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
