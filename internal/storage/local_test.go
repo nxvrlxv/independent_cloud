@@ -15,7 +15,7 @@ func TestLocalStorage(t *testing.T) {
 	key := "9f8b2c1ad4e3"
 	newFlow := strings.NewReader(content)
 
-	err := ls.Save(ctx, key, newFlow)
+	_, err := ls.Save(ctx, key, newFlow)
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}
