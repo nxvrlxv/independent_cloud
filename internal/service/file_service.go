@@ -101,3 +101,12 @@ func (service *FileService) List(ctx context.Context, ownerID int64) ([]reposito
 
 	return files, nil
 }
+
+func (service *FileService) Update(ctx context.Context, file_id int64, newFilename string) error {
+	err := service.repo.Update(ctx, file_id, newFilename)
+	if err != nil {
+		return fmt.Errorf("some error occured while updating filename: %w", err)
+	}
+
+	return nil
+}

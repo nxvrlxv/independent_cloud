@@ -54,6 +54,16 @@ func (repo *FileRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (repo *FileRepository) Update(ctx context.Context, file_id int64, newFilename string) error {
+	fmt.Println(newFilename)
+	_, err := repo.pool.Exec(ctx,
+		"UPDATE files SET original_name = $1 WHERE id = $2", newFilename, file_id)
+	if err != nil {
+		return fmt.Errorf("Error occured while updating^ %w", err)
+	}
+	return nil
+}
+
 func (repo *FileRepository) GetByID(ctx context.Context, id int64) (*File, error) {
 	var file File
 	file_row := repo.pool.QueryRow(ctx, "select * from files where id = $1", id)

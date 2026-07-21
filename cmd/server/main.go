@@ -13,7 +13,7 @@ import (
 	"github.com/nxvrlxv/independent_cloud/internal/storage"
 )
 
-const base string = "/Users/enjoyer/mycloud"
+const base string = "C:/Users/ElectroN1ck/mycloud"
 
 func main() {
 	ctx := context.Background()
@@ -31,9 +31,11 @@ func main() {
 	hand := handler.NewFileHandler(serv)
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /hello", hand.FirstHandler)
+	//mux.HandleFunc("GET /hello", hand.FirstHandler)
 	mux.HandleFunc("POST /save", hand.Upload)
 	mux.HandleFunc("GET /file/{id}", hand.Download)
+	mux.HandleFunc("PATCH /file/{id}", hand.Update)
+	mux.HandleFunc("DELETE /file/{id}", hand.Delete)
 	//s := http.Server{}
 	err1 := http.ListenAndServe(port, mux)
 	if err1 != nil {
