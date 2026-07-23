@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/nxvrlxv/independent_cloud/internal/repository"
@@ -109,4 +110,76 @@ func (service *FileService) Update(ctx context.Context, file_id int64, newFilena
 	}
 
 	return nil
+}
+
+// folders life cycle
+func (service *FileService) AddFolder(ctx context.Context, ownerID int64, folderName string, parentID *int64) error {
+	folder := repository.Folder{
+		ParentID:   parentID,
+		OwnerID:    ownerID,
+		FolderName: folderName}
+	err := service.repo.AddFolder(ctx, &folder)
+	if err != nil {
+		return fmt.Errorf("error on service while adding floder: %w", err)
+	}
+	return nil
+}
+
+func (service *FileService) ListOfFolders(ctx context.Context, ownerID int64) ([]repository.Folder, error) {
+	result, err := service.repo.ListFolders(ctx, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("some error when listing in service: %w", err)
+	}
+
+	return result, nil
+}
+
+func (service *FileService) ListOfFilesInFolder(ctx context.Context, folderID int64, ownerID int64) ([]repository.File, error) {
+	result, err := service.repo.ListOfFilesInFolder(ctx, folderID, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("error list of files service: %w", err)
+	}
+
+	return result, nil
+}
+
+func (service *FileService) RenameFolder(ctx context.Context, folderID int64, newFolderName string) error {
+	err := service.repo.RenameFolder(ctx, folderID, newFolderName)
+	if err != nil {
+		return fmt.Errorf("error rename service: %w", err)
+	}
+	return nil
+}
+
+func (service *FileService) DeleteFolder(ctx context.Context, folderID int64, ownerID int64) error {
+	var wg sync.WaitGroup
+	var mux sync.Mutex
+	wPool := make(chan struct{}, 50)
+	files, err := service.repo.DeleteFolder(ctx, folderID, ownerID)
+	if err != nil {
+		return fmt.Errorf("error select files service: %w", err)
+	}
+
+	errSlice := make([]error, 0, len(files))
+	//параллельно удаляем файлы из storage
+
+	for _, value := range files {
+		wg.Add(1)
+		go func(value repository.File) {
+			defer wg.Done()
+			wPool <- struct{}{}
+			err := service.storage.Delete(ctx, value.StorageKey)
+			if err != nil {
+				mux.Lock()
+				defer mux.Unlock()
+				errSlice = append(errSlice, err)
+				return
+			}
+			<-wPool
+		}(value)
+	}
+
+	wg.Wait()
+
+	return errors.Join(errSlice...)
 }

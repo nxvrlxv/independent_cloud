@@ -132,3 +132,5 @@ func (s *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
+
+//эндпоинты для папок
