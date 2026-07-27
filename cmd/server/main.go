@@ -36,6 +36,12 @@ func main() {
 	mux.HandleFunc("GET /file/{id}", hand.Download)
 	mux.HandleFunc("PATCH /file/{id}", hand.Update)
 	mux.HandleFunc("DELETE /file/{id}", hand.Delete)
+	mux.HandleFunc("POST /folders", hand.AddFolder)
+	mux.HandleFunc("GET /folders", hand.ListFolders)
+	mux.HandleFunc("GET /folders/{id}/contents", hand.ListOfFilesInFolder)
+	mux.HandleFunc("DELETE /folders/{id}", hand.DeleteFolder)
+	mux.HandleFunc("PATCH /folders/{id}", hand.RenameFolder)
+
 	//s := http.Server{}
 	err1 := http.ListenAndServe(port, mux)
 	if err1 != nil {

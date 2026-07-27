@@ -18,8 +18,7 @@ type File struct {
 	SizeBytes    int64
 	ContentType  string
 	CreatedAt    time.Time
-	FolderID     int64
-	folder_id    int64
+	FolderID     *int64
 }
 
 type Folder struct {
@@ -44,7 +43,7 @@ func (repo *FileRepository) Save(ctx context.Context, file *File) (int64, error)
 	var id int64
 	err := repo.pool.QueryRow(ctx,
 		"INSERT INTO files (owner_id, original_name, storage_key, size_bytes, content_type, folder_id) "+
-			"VALUES ($1, $2, $3, $4, $5) RETURNING id", file.OwnerID, file.OriginalName, file.StorageKey, file.SizeBytes, file.ContentType).Scan(&id)
+			"VALUES ($1, $2, $3, $4, $5, $6) RETURNING id", file.OwnerID, file.OriginalName, file.StorageKey, file.SizeBytes, file.ContentType, file.FolderID).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrFileNotFound
@@ -77,7 +76,7 @@ func (repo *FileRepository) Update(ctx context.Context, file_id int64, newFilena
 func (repo *FileRepository) GetByID(ctx context.Context, id int64) (*File, error) {
 	var file File
 	file_row := repo.pool.QueryRow(ctx, "select * from files where id = $1", id)
-	err := file_row.Scan(&file.ID, &file.OwnerID, &file.OriginalName, &file.StorageKey, &file.SizeBytes, &file.ContentType, &file.CreatedAt)
+	err := file_row.Scan(&file.ID, &file.OwnerID, &file.OriginalName, &file.StorageKey, &file.SizeBytes, &file.ContentType, &file.CreatedAt, &file.FolderID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrFileNotFound
@@ -97,7 +96,7 @@ func (repo *FileRepository) ListByOwner(ctx context.Context, ownerID int64) ([]F
 	var ListOfFiles []File
 	for rows.Next() {
 		f := File{}
-		err := rows.Scan(&f.ID, &f.OwnerID, &f.OriginalName, &f.StorageKey, &f.SizeBytes, &f.ContentType, &f.CreatedAt)
+		err := rows.Scan(&f.ID, &f.OwnerID, &f.OriginalName, &f.StorageKey, &f.SizeBytes, &f.ContentType, &f.CreatedAt, &f.FolderID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan data: %w", err)
 		}
@@ -110,16 +109,25 @@ func (repo *FileRepository) ListByOwner(ctx context.Context, ownerID int64) ([]F
 	return ListOfFiles, nil
 }
 
-// Создание пользователем кастомных папок
-// (не влияет на структуру хранения файлов на сервере, визуал для пользака)
-// Все хендлеры жизненного цикла папок пользователя
-func (repo *FileRepository) AddFolder(ctx context.Context, folder *Folder) error {
-	_, err := repo.pool.Exec(ctx, "INSERT INTO folders (parent_id, owner_id,folder_name) "+
-		"VALUES ($1, $2, $3)", folder.ParentID, folder.OwnerID, folder.FolderName)
+func (repo *FileRepository) ChangeFolder(ctx context.Context, fileID int64, newfolderID *int64) error {
+	_, err := repo.pool.Exec(ctx, "UPDATE files SET folder_id = $1 WHERE id = $2", newfolderID, fileID)
 	if err != nil {
-		return fmt.Errorf("U have a problem with sql query %w", err)
+		return fmt.Errorf("Invalid parameters for update: %v", err)
 	}
 	return nil
+}
+
+// Создание пользователем кастомных папок
+// (не влияет на структуру хранения файлов на сервере, визуал для пользака)
+
+func (repo *FileRepository) AddFolder(ctx context.Context, folder *Folder) (int64, error) {
+	var FolderID int64
+	err := repo.pool.QueryRow(ctx, "INSERT INTO folders (parent_id, owner_id,folder_name) "+
+		"VALUES ($1, $2, $3) RETURNING folder_id", folder.ParentID, folder.OwnerID, folder.FolderName).Scan(&FolderID)
+	if err != nil {
+		return 0, fmt.Errorf("U have a problem with sql query %w", err)
+	}
+	return FolderID, nil
 }
 
 func (repo *FileRepository) ListFolders(ctx context.Context, ownerID int64) ([]Folder, error) {
@@ -175,17 +183,11 @@ func (repo *FileRepository) RenameFolder(ctx context.Context, folderID int64, ne
 	return nil
 }
 
-func (repo *FileRepository) DeleteFolder(ctx context.Context, folderID int64, ownerID int64) ([]File, error) {
-	//1. получение списка файлов из папки
-	files, err := repo.ListOfFilesInFolder(ctx, folderID, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("can't fetch files from folder: %w", err)
-	}
-
+func (repo *FileRepository) DeleteFolder(ctx context.Context, folderID int64, ownerID int64) error {
 	_, err1 := repo.pool.Exec(ctx, "DELETE FROM folders WHERE folder_id = $1 and owner_id = $2", folderID, ownerID)
 	if err1 != nil {
-		return nil, fmt.Errorf("error, impossible to delete folder: %w", err1)
+		return fmt.Errorf("error, impossible to delete folder: %w", err1)
 	}
 
-	return files, nil
+	return nil
 }

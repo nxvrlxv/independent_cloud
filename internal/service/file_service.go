@@ -23,7 +23,7 @@ func NewFileService(storage storage.Storage, repo *repository.FileRepository) *F
 	return &FileService{storage: storage, repo: repo}
 }
 
-func (service *FileService) Upload(ctx context.Context, r io.Reader, ownerID int64, filename string, contentType string) (int64, error) {
+func (service *FileService) Upload(ctx context.Context, r io.Reader, ownerID int64, filename string, contentType string, FolderID *int64) (int64, error) {
 	storage_key := uuid.New().String()
 	size_bytes, err := service.storage.Save(ctx, storage_key, r)
 	if err != nil {
@@ -34,7 +34,8 @@ func (service *FileService) Upload(ctx context.Context, r io.Reader, ownerID int
 		OriginalName: filename,
 		SizeBytes:    size_bytes,
 		StorageKey:   storage_key,
-		ContentType:  contentType}
+		ContentType:  contentType,
+		FolderID:     FolderID}
 
 	id, err := service.repo.Save(ctx, &file)
 	if err != nil {
@@ -112,17 +113,26 @@ func (service *FileService) Update(ctx context.Context, file_id int64, newFilena
 	return nil
 }
 
+func (service *FileService) ChangeFolder(ctx context.Context, fileID int64, newFolderID *int64) error {
+	err := service.repo.ChangeFolder(ctx, fileID, newFolderID)
+	if err != nil {
+		return fmt.Errorf("Some error occured: %v", err)
+	}
+
+	return nil
+}
+
 // folders life cycle
-func (service *FileService) AddFolder(ctx context.Context, ownerID int64, folderName string, parentID *int64) error {
+func (service *FileService) AddFolder(ctx context.Context, ownerID int64, folderName string, parentID *int64) (int64, error) {
 	folder := repository.Folder{
 		ParentID:   parentID,
 		OwnerID:    ownerID,
 		FolderName: folderName}
-	err := service.repo.AddFolder(ctx, &folder)
+	FolderID, err := service.repo.AddFolder(ctx, &folder)
 	if err != nil {
-		return fmt.Errorf("error on service while adding floder: %w", err)
+		return 0, fmt.Errorf("error on service while adding floder: %w", err)
 	}
-	return nil
+	return FolderID, nil
 }
 
 func (service *FileService) ListOfFolders(ctx context.Context, ownerID int64) ([]repository.Folder, error) {
@@ -155,9 +165,16 @@ func (service *FileService) DeleteFolder(ctx context.Context, folderID int64, ow
 	var wg sync.WaitGroup
 	var mux sync.Mutex
 	wPool := make(chan struct{}, 50)
-	files, err := service.repo.DeleteFolder(ctx, folderID, ownerID)
+	files, err := service.ListOfFilesInFolder(ctx, folderID, ownerID)
 	if err != nil {
-		return fmt.Errorf("error select files service: %w", err)
+		fmt.Println(err)
+		return fmt.Errorf("something went wrong while getting files from deleted folder: %v", err)
+	}
+
+	err1 := service.repo.DeleteFolder(ctx, folderID, ownerID)
+	if err1 != nil {
+		fmt.Println(err1)
+		return fmt.Errorf("error select files service: %v", err1)
 	}
 
 	errSlice := make([]error, 0, len(files))
