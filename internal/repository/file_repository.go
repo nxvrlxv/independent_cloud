@@ -29,6 +29,18 @@ type Folder struct {
 	CreatedAt  time.Time
 }
 
+type User struct {
+	userID       int64
+	Username     string
+	passwordHash string
+	CreatedAt    time.Time
+}
+
+type ContentInFolder struct {
+	Files   []File   `json:"files"`
+	Folders []Folder `json:"folders"`
+}
+
 type FileRepository struct {
 	pool *pgxpool.Pool
 }
@@ -152,9 +164,10 @@ func (repo *FileRepository) ListFolders(ctx context.Context, ownerID int64) ([]F
 	return result, nil
 }
 
-func (repo *FileRepository) ListOfFilesInFolder(ctx context.Context, folderID int64, ownerID int64) ([]File, error) {
-	result := make([]File, 0)
-	rows, err := repo.pool.Query(ctx, "select original_name, id, storage_key "+
+func (repo *FileRepository) ListOfContentsInFolder(ctx context.Context, folderID int64, ownerID int64) (*ContentInFolder, error) {
+	var Content ContentInFolder
+
+	rows, err := repo.pool.Query(ctx, "select original_name, id, storage_key, size_bytes, content_type, created_at, folder_id "+
 		"FROM files WHERE folder_id = $1 AND owner_id = $2", folderID, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("some error occured in sql query %w", err)
@@ -163,15 +176,29 @@ func (repo *FileRepository) ListOfFilesInFolder(ctx context.Context, folderID in
 	defer rows.Close()
 	for rows.Next() {
 		var f File
-		err := rows.Scan(&f.OriginalName, &f.ID, &f.StorageKey)
+		err := rows.Scan(&f.OriginalName, &f.ID, &f.StorageKey, &f.SizeBytes, &f.ContentType, &f.CreatedAt, &f.FolderID)
 		if err != nil {
 			return nil, fmt.Errorf("some error while fetching files data: %w", err)
 		}
 
-		result = append(result, f)
+		Content.Files = append(Content.Files, f)
 	}
 
-	return result, nil
+	rows, err1 := repo.pool.Query(ctx, "select * from folders where parent_id = $1", folderID)
+	if err1 != nil {
+		return nil, fmt.Errorf("error in sql query folders: %w", err1)
+	}
+
+	for rows.Next() {
+		var f Folder
+		err := rows.Scan(&f.FolderID, &f.ParentID, &f.OwnerID, &f.FolderName, &f.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("some error while fetching files data: %w", err)
+		}
+		Content.Folders = append(Content.Folders, f)
+	}
+
+	return &Content, nil
 }
 
 func (repo *FileRepository) RenameFolder(ctx context.Context, folderID int64, newFolderName string) error {
@@ -190,4 +217,26 @@ func (repo *FileRepository) DeleteFolder(ctx context.Context, folderID int64, ow
 	}
 
 	return nil
+}
+
+// пользовательское взаимодействие
+
+func (repo *FileRepository) CreateUser(ctx context.Context, username string, passwordHash string) (int64, error) {
+	var userID int64
+	err := repo.pool.QueryRow(ctx, "INSERT INTO users (username, password_hash) VALUES ($1, $2)", username, passwordHash).Scan(&userID)
+	if err != nil {
+		return 0, fmt.Errorf("Error in DB while creating user: %w", err)
+	}
+
+	return userID, nil
+}
+
+func (repo *FileRepository) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	var U User
+	row := repo.pool.QueryRow(ctx, "select * from users where username = $1", username)
+	err := row.Scan(&U.userID, &U.Username, &U.passwordHash, &U)
+	if err != nil {
+		return nil, fmt.Errorf("Some error in query^ %w", err)
+	}
+	return &U, nil
 }

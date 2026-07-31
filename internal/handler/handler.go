@@ -231,13 +231,10 @@ func (s *FileHandler) ListFolders(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *FileHandler) ListOfFilesInFolder(w http.ResponseWriter, r *http.Request) {
+func (s *FileHandler) ListOfContentsInFolder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Error:", http.StatusMethodNotAllowed)
 		return
-	}
-	type response struct {
-		Files []repository.File `json:"files"`
 	}
 
 	FolderID, err := strconv.Atoi(r.PathValue("id"))
@@ -245,19 +242,18 @@ func (s *FileHandler) ListOfFilesInFolder(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid id!", http.StatusBadRequest)
 	}
 	ctx := r.Context()
-	files, err1 := s.serv.ListOfFilesInFolder(ctx, int64(FolderID), 1)
+	content, err1 := s.serv.ListOfContentsInFolder(ctx, int64(FolderID), 1)
 	if err1 != nil {
 		http.Error(w, "Error in list of files", http.StatusExpectationFailed)
 		return
 	}
-	if files == nil {
-		files = []repository.File{}
+	if content == nil {
+		content = &repository.ContentInFolder{}
 	}
-	res := response{Files: files}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	err2 := json.NewEncoder(w).Encode(&res)
+	err2 := json.NewEncoder(w).Encode(content)
 	if err2 != nil {
 		http.Error(w, "Error in files to JSON", http.StatusInternalServerError)
 		return

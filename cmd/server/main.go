@@ -38,7 +38,7 @@ func main() {
 	mux.HandleFunc("DELETE /file/{id}", hand.Delete)
 	mux.HandleFunc("POST /folders", hand.AddFolder)
 	mux.HandleFunc("GET /folders", hand.ListFolders)
-	mux.HandleFunc("GET /folders/{id}/contents", hand.ListOfFilesInFolder)
+	mux.HandleFunc("GET /folders/{id}/contents", hand.ListOfContentsInFolder)
 	mux.HandleFunc("DELETE /folders/{id}", hand.DeleteFolder)
 	mux.HandleFunc("PATCH /folders/{id}", hand.RenameFolder)
 

@@ -144,8 +144,8 @@ func (service *FileService) ListOfFolders(ctx context.Context, ownerID int64) ([
 	return result, nil
 }
 
-func (service *FileService) ListOfFilesInFolder(ctx context.Context, folderID int64, ownerID int64) ([]repository.File, error) {
-	result, err := service.repo.ListOfFilesInFolder(ctx, folderID, ownerID)
+func (service *FileService) ListOfContentsInFolder(ctx context.Context, folderID int64, ownerID int64) (*repository.ContentInFolder, error) {
+	result, err := service.repo.ListOfContentsInFolder(ctx, folderID, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("error list of files service: %w", err)
 	}
@@ -165,7 +165,7 @@ func (service *FileService) DeleteFolder(ctx context.Context, folderID int64, ow
 	var wg sync.WaitGroup
 	var mux sync.Mutex
 	wPool := make(chan struct{}, 50)
-	files, err := service.ListOfFilesInFolder(ctx, folderID, ownerID)
+	content, err := service.ListOfContentsInFolder(ctx, folderID, ownerID)
 	if err != nil {
 		fmt.Println(err)
 		return fmt.Errorf("something went wrong while getting files from deleted folder: %v", err)
@@ -177,10 +177,10 @@ func (service *FileService) DeleteFolder(ctx context.Context, folderID int64, ow
 		return fmt.Errorf("error select files service: %v", err1)
 	}
 
-	errSlice := make([]error, 0, len(files))
+	errSlice := make([]error, 0, len(content.Files))
 	//параллельно удаляем файлы из storage
 
-	for _, value := range files {
+	for _, value := range content.Files {
 		wg.Add(1)
 		go func(value repository.File) {
 			defer wg.Done()
