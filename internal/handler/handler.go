@@ -7,17 +7,20 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
+	"github.com/nxvrlxv/independent_cloud/internal/auth"
 	"github.com/nxvrlxv/independent_cloud/internal/repository"
 	"github.com/nxvrlxv/independent_cloud/internal/service"
 )
 
 type FileHandler struct {
 	serv *service.FileService
+	auth *auth.AuthService
 }
 
-func NewFileHandler(s *service.FileService) *FileHandler {
-	return &FileHandler{serv: s}
+func NewFileHandler(s *service.FileService, auth *auth.AuthService) *FileHandler {
+	return &FileHandler{serv: s, auth: auth}
 }
 
 // func (s *FileHandler) FirstHandler(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +31,11 @@ func NewFileHandler(s *service.FileService) *FileHandler {
 
 func (s *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	file, header, err := r.FormFile("file")
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	if err != nil {
 		http.Error(w, "there is no file", http.StatusBadRequest)
@@ -47,7 +55,7 @@ func (s *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	id, err := s.serv.Upload(ctx, file, 1, header.Filename, header.Header.Get("Content-Type"), FolderID)
+	id, err := s.serv.Upload(ctx, file, userID, header.Filename, header.Header.Get("Content-Type"), FolderID)
 	if err != nil {
 		fmt.Println(err)
 		http.Error(w, "error occured while uploading file", http.StatusInternalServerError)
@@ -73,8 +81,13 @@ func (s *FileHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	reader, file, err := s.serv.Download(ctx, int64(file_id), 1)
+	reader, file, err := s.serv.Download(ctx, int64(file_id), userID)
 	if err != nil {
 		http.Error(w, "failed to download file", http.StatusInternalServerError)
 		return
@@ -123,8 +136,13 @@ func (s *FileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	if reqName.NewFileName != "" {
-		err1 := s.serv.Update(ctx, int64(fileId), reqName.NewFileName)
+		err1 := s.serv.Update(ctx, int64(fileId), reqName.NewFileName, userID)
 
 		if err1 != nil {
 			http.Error(w, "Error occured while updating data", http.StatusInternalServerError)
@@ -132,7 +150,7 @@ func (s *FileHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.serv.ChangeFolder(ctx, int64(fileId), reqName.NewFolderID); err != nil {
+	if err := s.serv.ChangeFolder(ctx, int64(fileId), reqName.NewFolderID, userID); err != nil {
 		http.Error(w, "some error in changing Folder for file", http.StatusInternalServerError)
 		return
 	}
@@ -140,12 +158,17 @@ func (s *FileHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (s *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	fileID, err := strconv.Atoi(r.PathValue("id"))
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	if err != nil {
 		http.Error(w, "don't have file with this id", http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()
-	err1 := s.serv.Delete(ctx, int64(fileID), 1)
+	err1 := s.serv.Delete(ctx, int64(fileID), userID)
 	if err1 != nil {
 		switch {
 		case errors.Is(err, repository.ErrFileNotFound):
@@ -161,8 +184,6 @@ func (s *FileHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 type requestFolders struct {
-	OwnerID    int64  `json:"owner_id"`
-	FolderID   int64  `json:"folder_id"`
 	FolderName string `json:"folder_name"`
 	ParentID   *int64 `json:"parent_id"`
 }
@@ -176,13 +197,19 @@ func (s *FileHandler) AddFolder(w http.ResponseWriter, r *http.Request) {
 	req := requestFolders{}
 
 	ctx := r.Context()
+	userID, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, "Incorrect data:", http.StatusBadRequest)
 		return
 	}
 
-	FolderID, err1 := s.serv.AddFolder(ctx, req.OwnerID, req.FolderName, req.ParentID)
+	FolderID, err1 := s.serv.AddFolder(ctx, userID, req.FolderName, req.ParentID)
 	if err1 != nil {
 		http.Error(w, "Can't create a folder", http.StatusInternalServerError)
 		return
@@ -211,7 +238,12 @@ func (s *FileHandler) ListFolders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	folders, err := s.serv.ListOfFolders(ctx, 1)
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	folders, err := s.serv.ListOfFolders(ctx, userID)
 	if err != nil {
 		http.Error(w, "error getting Folders", http.StatusInternalServerError)
 		return
@@ -231,6 +263,35 @@ func (s *FileHandler) ListFolders(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (s *FileHandler) ListUserFiles(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	fileList, err := s.serv.List(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "error getting files", http.StatusInternalServerError)
+		return
+	}
+
+	if fileList == nil {
+		fileList = []repository.File{}
+	}
+
+	type response struct {
+		Files []repository.File `json:"files"`
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response{Files: fileList}); err != nil {
+		http.Error(w, "Invalid data", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (s *FileHandler) ListOfContentsInFolder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Error:", http.StatusMethodNotAllowed)
@@ -240,9 +301,15 @@ func (s *FileHandler) ListOfContentsInFolder(w http.ResponseWriter, r *http.Requ
 	FolderID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "invalid id!", http.StatusBadRequest)
+		return
+	}
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 	ctx := r.Context()
-	content, err1 := s.serv.ListOfContentsInFolder(ctx, int64(FolderID), 1)
+	content, err1 := s.serv.ListOfContentsInFolder(ctx, int64(FolderID), userID)
 	if err1 != nil {
 		http.Error(w, "Error in list of files", http.StatusExpectationFailed)
 		return
@@ -266,9 +333,15 @@ func (s *FileHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	FolderID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "wrong ID", http.StatusBadRequest)
+		return
+	}
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
 	}
 
-	if err := s.serv.DeleteFolder(ctx, int64(FolderID), 1); err != nil {
+	if err := s.serv.DeleteFolder(ctx, int64(FolderID), userID); err != nil {
 		http.Error(w, "Error occured while deleting folder", http.StatusInternalServerError)
 		fmt.Println(err)
 		return
@@ -283,9 +356,15 @@ func (s *FileHandler) RenameFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	req := request{}
 	ctx := r.Context()
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	FolderID, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil {
 		http.Error(w, "wrong ID", http.StatusBadRequest)
+		return
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -293,9 +372,98 @@ func (s *FileHandler) RenameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.serv.RenameFolder(ctx, int64(FolderID), req.NewFolderName); err != nil {
+	if err := s.serv.RenameFolder(ctx, int64(FolderID), req.NewFolderName, userID); err != nil {
 		http.Error(w, "errorr", http.StatusInternalServerError)
 		return
 	}
 
+}
+
+type request struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type response struct {
+	UserID int64 `json:"user_id"`
+}
+
+func (s *FileHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+
+	req := request{}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "Invalid parameters JSON", http.StatusBadRequest)
+		return
+	}
+
+	id, err := s.auth.RegisterUser(r.Context(), req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Error in registration", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	err1 := json.NewEncoder(w).Encode(response{UserID: id})
+	if err1 != nil {
+		http.Error(w, "Error occured while decode to json", http.StatusInternalServerError)
+		return
+	}
+
+}
+
+func (s *FileHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
+	req := request{}
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "Invalid parameters JSON", http.StatusBadRequest)
+		return
+	}
+
+	id, err := s.auth.LoginUser(r.Context(), req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	tokenString, err := s.auth.GenerateToken(id)
+	if err != nil {
+		http.Error(w, "Error in creating your token", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    tokenString,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(24 * time.Hour),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	err1 := json.NewEncoder(w).Encode(response{UserID: id})
+	if err1 != nil {
+		http.Error(w, "Json", http.StatusInternalServerError)
+		return
+	}
+
+}
+
+func (s *FileHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+
+	w.WriteHeader(http.StatusOK)
 }

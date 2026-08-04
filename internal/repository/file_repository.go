@@ -11,29 +11,29 @@ import (
 )
 
 type File struct {
-	ID           int64
-	OwnerID      int64
-	OriginalName string
-	StorageKey   string
-	SizeBytes    int64
-	ContentType  string
-	CreatedAt    time.Time
-	FolderID     *int64
+	ID           int64     `json:"id"`
+	OwnerID      int64     `json:"-"`
+	OriginalName string    `json:"original_name"`
+	StorageKey   string    `json:"-"`
+	SizeBytes    int64     `json:"size_bytes"`
+	ContentType  string    `json:"content_type"`
+	CreatedAt    time.Time `json:"created_at"`
+	FolderID     *int64    `json:"folder_id"`
 }
 
 type Folder struct {
-	FolderID   int64
-	ParentID   *int64
-	OwnerID    int64
-	FolderName string
-	CreatedAt  time.Time
+	FolderID   int64     `json:"folder_id"`
+	ParentID   *int64    `json:"parent_id"`
+	OwnerID    int64     `json:"-"`
+	FolderName string    `json:"folder_name"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type User struct {
-	userID       int64
-	Username     string
-	passwordHash string
-	CreatedAt    time.Time
+	UserID       int64     `json:"user_id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type ContentInFolder struct {
@@ -75,10 +75,10 @@ func (repo *FileRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (repo *FileRepository) Update(ctx context.Context, file_id int64, newFilename string) error {
+func (repo *FileRepository) Update(ctx context.Context, file_id int64, newFilename string, ownerID int64) error {
 	fmt.Println(newFilename)
 	_, err := repo.pool.Exec(ctx,
-		"UPDATE files SET original_name = $1 WHERE id = $2", newFilename, file_id)
+		"UPDATE files SET original_name = $1 WHERE id = $2 AND owner_id = $3", newFilename, file_id, ownerID)
 	if err != nil {
 		return fmt.Errorf("Error occured while updating^ %w", err)
 	}
@@ -121,8 +121,8 @@ func (repo *FileRepository) ListByOwner(ctx context.Context, ownerID int64) ([]F
 	return ListOfFiles, nil
 }
 
-func (repo *FileRepository) ChangeFolder(ctx context.Context, fileID int64, newfolderID *int64) error {
-	_, err := repo.pool.Exec(ctx, "UPDATE files SET folder_id = $1 WHERE id = $2", newfolderID, fileID)
+func (repo *FileRepository) ChangeFolder(ctx context.Context, fileID int64, newfolderID *int64, ownerID int64) error {
+	_, err := repo.pool.Exec(ctx, "UPDATE files SET folder_id = $1 WHERE id = $2 AND owner_id = $3", newfolderID, fileID, ownerID)
 	if err != nil {
 		return fmt.Errorf("Invalid parameters for update: %v", err)
 	}
@@ -145,7 +145,7 @@ func (repo *FileRepository) AddFolder(ctx context.Context, folder *Folder) (int6
 func (repo *FileRepository) ListFolders(ctx context.Context, ownerID int64) ([]Folder, error) {
 	result := []Folder{}
 
-	rows, err := repo.pool.Query(ctx, "SELECT folder_id, parent_id, owner_id, folder_name FROM folders "+
+	rows, err := repo.pool.Query(ctx, "SELECT folder_id, parent_id, owner_id, folder_name, created_at FROM folders "+
 		"WHERE owner_id = $1", ownerID)
 	if err != nil {
 		return []Folder{}, fmt.Errorf("there is problem with sql-query: %w", err)
@@ -154,7 +154,7 @@ func (repo *FileRepository) ListFolders(ctx context.Context, ownerID int64) ([]F
 
 	for rows.Next() {
 		var f Folder
-		err := rows.Scan(&f.FolderID, &f.ParentID, &f.OwnerID, &f.FolderName)
+		err := rows.Scan(&f.FolderID, &f.ParentID, &f.OwnerID, &f.FolderName, &f.CreatedAt)
 		if err != nil {
 			return []Folder{}, fmt.Errorf("Error in fetching data from cursor: %w", err)
 		}
@@ -167,16 +167,16 @@ func (repo *FileRepository) ListFolders(ctx context.Context, ownerID int64) ([]F
 func (repo *FileRepository) ListOfContentsInFolder(ctx context.Context, folderID int64, ownerID int64) (*ContentInFolder, error) {
 	var Content ContentInFolder
 
-	rows, err := repo.pool.Query(ctx, "select original_name, id, storage_key, size_bytes, content_type, created_at, folder_id "+
+	filerows, err := repo.pool.Query(ctx, "select original_name, id, storage_key, size_bytes, content_type, created_at, folder_id "+
 		"FROM files WHERE folder_id = $1 AND owner_id = $2", folderID, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("some error occured in sql query %w", err)
 	}
 
-	defer rows.Close()
-	for rows.Next() {
+	defer filerows.Close()
+	for filerows.Next() {
 		var f File
-		err := rows.Scan(&f.OriginalName, &f.ID, &f.StorageKey, &f.SizeBytes, &f.ContentType, &f.CreatedAt, &f.FolderID)
+		err := filerows.Scan(&f.OriginalName, &f.ID, &f.StorageKey, &f.SizeBytes, &f.ContentType, &f.CreatedAt, &f.FolderID)
 		if err != nil {
 			return nil, fmt.Errorf("some error while fetching files data: %w", err)
 		}
@@ -184,25 +184,35 @@ func (repo *FileRepository) ListOfContentsInFolder(ctx context.Context, folderID
 		Content.Files = append(Content.Files, f)
 	}
 
-	rows, err1 := repo.pool.Query(ctx, "select * from folders where parent_id = $1", folderID)
+	if err := filerows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating files: %w", err)
+	}
+
+	folderrows, err1 := repo.pool.Query(ctx, "select * from folders where parent_id = $1 AND owner_id = $2", folderID, ownerID)
 	if err1 != nil {
 		return nil, fmt.Errorf("error in sql query folders: %w", err1)
 	}
 
-	for rows.Next() {
+	defer folderrows.Close()
+
+	for folderrows.Next() {
 		var f Folder
-		err := rows.Scan(&f.FolderID, &f.ParentID, &f.OwnerID, &f.FolderName, &f.CreatedAt)
+		err := folderrows.Scan(&f.FolderID, &f.ParentID, &f.OwnerID, &f.FolderName, &f.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("some error while fetching files data: %w", err)
 		}
 		Content.Folders = append(Content.Folders, f)
 	}
 
+	if err := folderrows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating folders: %w", err)
+	}
+
 	return &Content, nil
 }
 
-func (repo *FileRepository) RenameFolder(ctx context.Context, folderID int64, newFolderName string) error {
-	_, err := repo.pool.Exec(ctx, " UPDATE folders SET folder_name = $1 WHERE folder_id = $2", newFolderName, folderID)
+func (repo *FileRepository) RenameFolder(ctx context.Context, folderID int64, newFolderName string, ownerID int64) error {
+	_, err := repo.pool.Exec(ctx, " UPDATE folders SET folder_name = $1 WHERE folder_id = $2 AND owner_id = $3", newFolderName, folderID, ownerID)
 	if err != nil {
 		return fmt.Errorf("Impossible to update folder^ %w", err)
 	}
@@ -223,7 +233,7 @@ func (repo *FileRepository) DeleteFolder(ctx context.Context, folderID int64, ow
 
 func (repo *FileRepository) CreateUser(ctx context.Context, username string, passwordHash string) (int64, error) {
 	var userID int64
-	err := repo.pool.QueryRow(ctx, "INSERT INTO users (username, password_hash) VALUES ($1, $2)", username, passwordHash).Scan(&userID)
+	err := repo.pool.QueryRow(ctx, "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id", username, passwordHash).Scan(&userID)
 	if err != nil {
 		return 0, fmt.Errorf("Error in DB while creating user: %w", err)
 	}
@@ -234,7 +244,7 @@ func (repo *FileRepository) CreateUser(ctx context.Context, username string, pas
 func (repo *FileRepository) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	var U User
 	row := repo.pool.QueryRow(ctx, "select * from users where username = $1", username)
-	err := row.Scan(&U.userID, &U.Username, &U.passwordHash, &U)
+	err := row.Scan(&U.UserID, &U.Username, &U.PasswordHash, &U.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("Some error in query^ %w", err)
 	}

@@ -104,8 +104,8 @@ func (service *FileService) List(ctx context.Context, ownerID int64) ([]reposito
 	return files, nil
 }
 
-func (service *FileService) Update(ctx context.Context, file_id int64, newFilename string) error {
-	err := service.repo.Update(ctx, file_id, newFilename)
+func (service *FileService) Update(ctx context.Context, file_id int64, newFilename string, ownerID int64) error {
+	err := service.repo.Update(ctx, file_id, newFilename, ownerID)
 	if err != nil {
 		return fmt.Errorf("some error occured while updating filename: %w", err)
 	}
@@ -113,8 +113,8 @@ func (service *FileService) Update(ctx context.Context, file_id int64, newFilena
 	return nil
 }
 
-func (service *FileService) ChangeFolder(ctx context.Context, fileID int64, newFolderID *int64) error {
-	err := service.repo.ChangeFolder(ctx, fileID, newFolderID)
+func (service *FileService) ChangeFolder(ctx context.Context, fileID int64, newFolderID *int64, ownerID int64) error {
+	err := service.repo.ChangeFolder(ctx, fileID, newFolderID, ownerID)
 	if err != nil {
 		return fmt.Errorf("Some error occured: %v", err)
 	}
@@ -153,8 +153,8 @@ func (service *FileService) ListOfContentsInFolder(ctx context.Context, folderID
 	return result, nil
 }
 
-func (service *FileService) RenameFolder(ctx context.Context, folderID int64, newFolderName string) error {
-	err := service.repo.RenameFolder(ctx, folderID, newFolderName)
+func (service *FileService) RenameFolder(ctx context.Context, folderID int64, newFolderName string, userID int64) error {
+	err := service.repo.RenameFolder(ctx, folderID, newFolderName, userID)
 	if err != nil {
 		return fmt.Errorf("error rename service: %w", err)
 	}
